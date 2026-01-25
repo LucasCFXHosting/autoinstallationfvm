@@ -2062,84 +2062,15 @@ main() {
         echo -e "${blue}  • Note :${reset} ${yellow}You can configure database manually later if needed${reset}"
     fi
 
-    echo -e "\n${bold}${yellow}SYSTEM INFORMATION${reset}"
-    echo -e "${blue}  • Server IP :${reset} ${bold}$server_ip${reset}"
-    echo -e "${blue}  • Installation Date :${reset} ${bold}$(date)${reset}"
-    echo -e "${blue}  • Log File :${reset} ${bold}$LOG_FILE${reset}"
-    echo -e "${blue}  • Installation Info :${reset} ${bold}$dir/installation_info.txt${reset}"
-    
-    if [[ "$crontab_autostart" == "1" ]]; then
-        echo -e "${blue}  • Autostart :${reset} ${bold}Enabled (will start on boot)${reset}"
-    else
-        echo -e "${blue}  • Autostart :${reset} ${yellow}Disabled${reset}"
-    fi
-    
-    # Check if server is running
-    local server_running=false
-    local server_info=""
-    
-    # Check for screen session first (txAdmin)
-    if screen -list | grep -q "fivem"; then
-        server_running=true
-        server_info="Running in screen session 'fivem'"
-    # Check for background process
-    elif pgrep -f "fx.*server" > /dev/null; then
-        server_running=true
-        local server_pid=$(pgrep -f "fx.*server" | head -1)
-        server_info="Running (PID: $server_pid)"
-    fi
-    
-    if [ "$server_running" = true ]; then
-        echo -e "${blue}  • Server Status :${reset} ${bold}${green}Running${reset}"
-        echo -e "${blue}  • Server Info :${reset} ${bold}$server_info${reset}"
-    else
-        echo -e "${blue}  • Server Status :${reset} ${yellow}Stopped${reset}"
-    fi
+    echo -e "${red}${bold}"
+    echo '                                                            '
+    echo '### ### # # ### # #  ## # # ### ### #   ##      ### ### ### '
+    echo '#    #  # # #   ### #   # #  #  #   #   # #     # # #    #  '
+    echo '##   #  # # ##  ###  #  ###  #  ##  #   # #     # # ##   #  '
+    echo '#    #  # # #   # #   # # #  #  #   #   # #     # # #    #  '
+    echo '#   ###  #  ### # # ##  # # ### ### ### ##   #  # # ###  #  '
+    echo -e "${reset}"
 
-    echo -e "\n${bold}${cyan}SERVER MANAGEMENT COMMANDS${reset}"
-    
-    # Check server status for appropriate commands
-    if screen -list | grep -q "fivem"; then
-        echo -e "${blue}• Attach to server console: ${bold}screen -r fivem${reset}"
-        echo -e "${blue}• Stop server: ${bold}$dir/stop.sh${reset}"
-        echo -e "${blue}• Restart server: ${bold}screen -S fivem -X quit && $dir/start.sh${reset}"
-    elif pgrep -f "fx.*server" > /dev/null; then
-        echo -e "${blue}• Stop server: ${bold}$dir/stop.sh${reset}"
-        echo -e "${blue}• Restart server: ${bold}$dir/stop.sh && $dir/start.sh${reset}"
-        echo -e "${blue}• View server logs: ${bold}tail -f $dir/server.log${reset}"
-    else
-        echo -e "${blue}• Start server: ${bold}$dir/start.sh${reset}"
-    fi
-    
-    echo -e "${blue}• Edit configuration: ${bold}nano $dir/server.cfg${reset}"
-    echo -e "${blue}• View installation logs: ${bold}tail -f $LOG_FILE${reset}"
-
-    echo -e "\n${bold}${cyan}NEXT STEPS${reset}"
-    echo -e "${blue}1. ${bold}REQUIRED:${reset} Get your license key from ${bold}https://keymaster.fivem.net/${reset}"
-    echo -e "${blue}2. Edit your server configuration: ${bold}nano $dir/server.cfg${reset}"
-    echo -e "${blue}3. Add your license key to server.cfg"
-    echo -e "${blue}4. Configure server settings (hostname, description, etc.)"
-    echo -e "${blue}5. Add admin permissions in permissions.cfg"
-    if ! screen -list | grep -q "fivem" && ! pgrep -f "fx.*server" > /dev/null; then
-        echo -e "${blue}6. Start your server: ${bold}cd $dir && ./run.sh${reset}"
-    fi
-
-    echo -e "\n${bold}${cyan}IMPORTANT NOTES${reset}"
-    echo -e "${blue}• Make sure to open port 30120 (TCP/UDP) in your firewall"
-    if [[ "$txadmin_deployment" == "1" ]]; then
-        echo -e "${blue}• Make sure to open port 40120 (TCP) for txAdmin access"
-    fi
-    echo -e "${blue}• Save all passwords and connection information in a secure location"
-    echo -e "${blue}• Check the installation info file for complete details"
-
-    echo -e "\n${bold}${cyan}SUPPORT & DOCUMENTATION${reset}"
-    echo -e "${blue}• FiveM Documentation: ${bold}https://docs.fivem.net/${reset}"
-    echo -e "${blue}• FiveM Forum: ${bold}https://forum.cfx.re/${reset}"
-    echo -e "${blue}• FiveM Discord: ${bold}https://discord.gg/fivem${reset}"
-
-    echo -e "\n${green}${bold}✓ FiveM Server installation completed successfully!${reset}"
-    echo -e "${yellow}Thank you for using the FiveM Server Installer${reset}\n"
-    
     cleanup_and_exit 0 "${green}Installation completed successfully!${reset}"
 }
 

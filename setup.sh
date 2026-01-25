@@ -1788,7 +1788,7 @@ list_artifacts_versions() {
 show_version() {
     echo -e "${bold}FIVEMSHIELD.NET INSTALLER${reset}"
     echo -e "${blue}Version: ${script_version}${reset}"
-    echo -e "${blue}Author: FiveM Community${reset}"
+    echo -e "${blue}Author: Lucas A.${reset}"
     echo -e "${blue}Repository: https://github.com/fivem-server-installer${reset}"
     echo
 }

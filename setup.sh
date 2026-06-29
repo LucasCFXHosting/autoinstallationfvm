@@ -59,6 +59,7 @@ install_phpmyadmin=0
 crontab_autostart=0
 pma_options=()
 script_version="1.2.0"
+custom_logo_url="https://fivemshield.net/images/team/logo-fivemshield.png"
 
 # Global variables for existing database
 existing_db_host=""
@@ -1412,6 +1413,166 @@ EOF
     log "SUCCESS" "Management scripts created"
 }
 
+# Apply FiveM Shield custom logo to txAdmin panel (login, header, menu)
+apply_txadmin_custom_logo() {
+    local install_dir=$1
+
+    status "Applying txAdmin custom logo"
+    log "INFO" "Configuring txAdmin custom logo for $install_dir"
+
+    local monitor_dir=""
+    local candidates=(
+        "$install_dir/citizen/system_resources/monitor"
+        "$install_dir/alpine/opt/cfx-server/citizen/system_resources/monitor"
+    )
+
+    for candidate in "${candidates[@]}"; do
+        if [[ -d "$candidate/panel" ]]; then
+            monitor_dir="$candidate"
+            break
+        fi
+    done
+
+    if [[ -z "$monitor_dir" ]]; then
+        log "WARN" "txAdmin monitor resource not found, custom logo skipped"
+        echo -e "${yellow}⚠ txAdmin monitor not found, custom logo skipped${reset}"
+        return 0
+    fi
+
+    local img_dir="$monitor_dir/web/public/img"
+    mkdir -p "$img_dir"
+
+    local logo_file="$img_dir/custom-logo.png"
+    log "INFO" "Downloading custom logo from $custom_logo_url"
+
+    if wget --timeout=60 --tries=3 -q -O "$logo_file" "$custom_logo_url" >> "$LOG_FILE" 2>&1; then
+        log "SUCCESS" "Custom logo downloaded"
+    elif curl --connect-timeout 10 --max-time 120 -fsSL -o "$logo_file" "$custom_logo_url" >> "$LOG_FILE" 2>&1; then
+        log "SUCCESS" "Custom logo downloaded with curl"
+    else
+        log "ERROR" "Failed to download custom logo"
+        echo -e "${red}✗ Failed to download custom logo${reset}"
+        return 1
+    fi
+
+    if [[ ! -s "$logo_file" ]]; then
+        log "ERROR" "Custom logo file is empty"
+        echo -e "${red}✗ Custom logo file is empty${reset}"
+        return 1
+    fi
+
+    local panel_js
+    panel_js=$(find "$monitor_dir/panel" -maxdepth 1 -name 'index-*.v800.js' ! -name '*.map' -print -quit)
+
+    if [[ -z "$panel_js" ]] || [[ ! -f "$panel_js" ]]; then
+        log "WARN" "txAdmin panel JS bundle not found, logo file saved but panel not patched"
+        echo -e "${yellow}⚠ Logo saved but txAdmin panel JS not found${reset}"
+        return 0
+    fi
+
+    if ! command -v python3 &>/dev/null; then
+        log "WARN" "python3 not found, cannot patch txAdmin panel JS"
+        echo -e "${yellow}⚠ python3 required to patch txAdmin logo in panel JS${reset}"
+        return 1
+    fi
+
+    local patch_result
+    patch_result=$(python3 - "$panel_js" <<'PYEOF'
+import sys
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as f:
+    js = f.read()
+
+if "img/custom-logo.png" in js:
+    print("already_patched")
+    sys.exit(0)
+
+def replace_logo_by_viewbox(js, viewbox):
+    marker = f'viewBox:"{viewbox}"'
+    idx = js.find(marker)
+    if idx < 0:
+        return js, False
+
+    start = js.rfind("function ", 0, idx)
+    if start < 0:
+        return js, False
+
+    brace_start = js.find("{", js.index(")", start))
+    if brace_start < 0:
+        return js, False
+
+    depth = 0
+    end = None
+    for i in range(brace_start, len(js)):
+        if js[i] == "{":
+            depth += 1
+        elif js[i] == "}":
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+
+    if end is None:
+        return js, False
+
+    name = js[start + 9 : js.index("(", start)]
+    new_fn = (
+        f"function {name}({{style:e,className:t}})"
+        f"{{return c.jsx(\"img\",{{className:t,style:e,src:\"img/custom-logo.png\",alt:\"Logo\"}})}}"
+    )
+    return js[:start] + new_fn + js[end:], True
+
+js, full_ok = replace_logo_by_viewbox(js, "0 0 1115 288")
+js, square_ok = replace_logo_by_viewbox(js, "0 0 288 288")
+
+if not full_ok and not square_ok:
+    print("patch_failed")
+    sys.exit(1)
+
+replacements = [
+    (
+        "className:\"w-36 xs:w-52 mx-auto\"",
+        "className:\"w-24 xs:w-36 mx-auto max-h-14 xs:max-h-16 object-contain\"",
+    ),
+    (
+        "className:\"h-9 hover:scale-105 hover:brightness-110\"",
+        "className:\"h-7 max-w-[100px] object-contain hover:scale-105 hover:brightness-110\"",
+    ),
+    (
+        "className:\"h-8 w-8 lg:h-10 lg:w-10 hover:scale-105 hover:brightness-110\"",
+        "className:\"h-6 w-6 lg:h-8 lg:w-8 object-contain hover:scale-105 hover:brightness-110\"",
+    ),
+]
+
+for old, new in replacements:
+    js = js.replace(old, new)
+
+with open(path, "w", encoding="utf-8") as f:
+    f.write(js)
+
+print("patched")
+PYEOF
+)
+
+    case "$patch_result" in
+        patched)
+            log "SUCCESS" "txAdmin panel patched with custom logo"
+            echo -e "${green}✓ txAdmin custom logo applied${reset}"
+            ;;
+        already_patched)
+            log "INFO" "txAdmin panel already uses custom logo"
+            echo -e "${green}✓ txAdmin custom logo already configured${reset}"
+            ;;
+        *)
+            log "WARN" "Could not patch txAdmin panel JS (txAdmin version may have changed)"
+            echo -e "${yellow}⚠ Logo downloaded but panel patch failed — check txAdmin version${reset}"
+            ;;
+    esac
+
+    log "SUCCESS" "txAdmin custom logo setup completed"
+}
+
 # Function to setup txAdmin if requested
 setup_txadmin() {
     local install_dir=$1
@@ -1662,6 +1823,9 @@ install_fivem_server() {
     
     # Install server artifacts
     download_server_artifacts "$dir"
+
+    # Apply FiveM Shield logo to txAdmin
+    apply_txadmin_custom_logo "$dir"
     
     # Create configuration files
     create_server_config "$dir"

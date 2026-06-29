@@ -60,6 +60,9 @@ crontab_autostart=0
 pma_options=()
 script_version="1.2.0"
 custom_logo_url="https://fivemshield.net/images/team/logo-fivemshield.png"
+custom_header_logo_url="https://r2.fivemanage.com/Xn3liC3UXPMlRlgbzX17D/Frame_2.png"
+custom_partner_banner_url="https://r2.fivemanage.com/Xn3liC3UXPMlRlgbzX17D/Frame237.png"
+custom_discord_url="https://discord.gg/fivemshield"
 
 # Global variables for existing database
 existing_db_host=""
@@ -1461,6 +1464,44 @@ apply_txadmin_custom_logo() {
         return 1
     fi
 
+    local header_logo_file="$img_dir/header-logo.png"
+    log "INFO" "Downloading header logo from $custom_header_logo_url"
+
+    if wget --timeout=60 --tries=3 -q -O "$header_logo_file" "$custom_header_logo_url" >> "$LOG_FILE" 2>&1; then
+        log "SUCCESS" "Header logo downloaded"
+    elif curl --connect-timeout 10 --max-time 120 -fsSL -o "$header_logo_file" "$custom_header_logo_url" >> "$LOG_FILE" 2>&1; then
+        log "SUCCESS" "Header logo downloaded with curl"
+    else
+        log "ERROR" "Failed to download header logo"
+        echo -e "${red}✗ Failed to download header logo${reset}"
+        return 1
+    fi
+
+    if [[ ! -s "$header_logo_file" ]]; then
+        log "ERROR" "Header logo file is empty"
+        echo -e "${red}✗ Header logo file is empty${reset}"
+        return 1
+    fi
+
+    local partner_banner_file="$img_dir/partner-banner.png"
+    log "INFO" "Downloading partner banner from $custom_partner_banner_url"
+
+    if wget --timeout=60 --tries=3 -q -O "$partner_banner_file" "$custom_partner_banner_url" >> "$LOG_FILE" 2>&1; then
+        log "SUCCESS" "Partner banner downloaded"
+    elif curl --connect-timeout 10 --max-time 120 -fsSL -o "$partner_banner_file" "$custom_partner_banner_url" >> "$LOG_FILE" 2>&1; then
+        log "SUCCESS" "Partner banner downloaded with curl"
+    else
+        log "ERROR" "Failed to download partner banner"
+        echo -e "${red}✗ Failed to download partner banner${reset}"
+        return 1
+    fi
+
+    if [[ ! -s "$partner_banner_file" ]]; then
+        log "ERROR" "Partner banner file is empty"
+        echo -e "${red}✗ Partner banner file is empty${reset}"
+        return 1
+    fi
+
     local panel_js
     panel_js=$(find "$monitor_dir/panel" -maxdepth 1 -name 'index-*.v800.js' ! -name '*.map' -print -quit)
 
@@ -1477,16 +1518,18 @@ apply_txadmin_custom_logo() {
     fi
 
     local patch_result
-    patch_result=$(python3 - "$panel_js" <<'PYEOF'
+    patch_result=$(python3 - "$panel_js" "$custom_discord_url" <<'PYEOF'
 import sys
 
 path = sys.argv[1]
+custom_discord_url = sys.argv[2]
 with open(path, "r", encoding="utf-8") as f:
     js = f.read()
 
-if "img/custom-logo.png" in js:
-    print("already_patched")
-    sys.exit(0)
+original = js
+patched_logo = False
+patched_discord = False
+patched_partner = False
 
 def replace_logo_by_viewbox(js, viewbox):
     marker = f'viewBox:"{viewbox}"'
@@ -1519,50 +1562,192 @@ def replace_logo_by_viewbox(js, viewbox):
     name = js[start + 9 : js.index("(", start)]
     new_fn = (
         f"function {name}({{style:e,className:t}})"
-        f"{{return c.jsx(\"img\",{{className:t,style:e,src:\"img/custom-logo.png\",alt:\"Logo\"}})}}"
+        f"{{return c.jsx(\"img\",{{className:t,style:{{...e,objectFit:\"contain\"}},src:\"img/custom-logo.png\",alt:\"Logo\"}})}}"
     )
     return js[:start] + new_fn + js[end:], True
 
-js, full_ok = replace_logo_by_viewbox(js, "0 0 1115 288")
-js, square_ok = replace_logo_by_viewbox(js, "0 0 288 288")
+if 'viewBox:"0 0 1115 288"' in js:
+    js, full_ok = replace_logo_by_viewbox(js, "0 0 1115 288")
+    js, square_ok = replace_logo_by_viewbox(js, "0 0 288 288")
+    if full_ok or square_ok:
+        patched_logo = True
 
-if not full_ok and not square_ok:
-    print("patch_failed")
-    sys.exit(1)
+# Fix logo img components if patched without objectFit
+js = js.replace(
+    'function lE({style:e,className:t}){return c.jsx("img",{className:t,style:e,src:"img/custom-logo.png",alt:"Logo"})}',
+    'function lE({style:e,className:t}){return c.jsx("img",{className:t,style:{...e,objectFit:"contain"},src:"img/custom-logo.png",alt:"Logo"})}',
+)
+js = js.replace(
+    'function X7e({style:e,className:t}){return c.jsx("img",{className:t,style:e,src:"img/custom-logo.png",alt:"Logo"})}',
+    'function X7e({style:e,className:t}){return c.jsx("img",{className:t,style:{...e,objectFit:"contain"},src:"img/custom-logo.png",alt:"Logo"})}',
+)
 
-replacements = [
+size_replacements = [
     (
         "className:\"w-36 xs:w-52 mx-auto\"",
+        "className:\"w-36 max-h-16 mx-auto\"",
+    ),
+    (
         "className:\"w-24 xs:w-36 mx-auto max-h-14 xs:max-h-16 object-contain\"",
+        "className:\"w-36 max-h-16 mx-auto\"",
     ),
     (
         "className:\"h-9 hover:scale-105 hover:brightness-110\"",
-        "className:\"h-7 max-w-[100px] object-contain hover:scale-105 hover:brightness-110\"",
+        "className:\"h-7 max-w-48 hover:scale-105 hover:brightness-110\"",
     ),
     (
-        "className:\"h-8 w-8 lg:h-10 lg:w-10 hover:scale-105 hover:brightness-110\"",
+        "className:\"h-7 max-w-[100px] object-contain hover:scale-105 hover:brightness-110\"",
+        "className:\"h-7 max-w-48 hover:scale-105 hover:brightness-110\"",
+    ),
+    (
         "className:\"h-6 w-6 lg:h-8 lg:w-8 object-contain hover:scale-105 hover:brightness-110\"",
+        "className:\"h-8 w-8 lg:h-10 lg:w-10 hover:scale-105 hover:brightness-110\"",
     ),
 ]
 
-for old, new in replacements:
-    js = js.replace(old, new)
+for old, new in size_replacements:
+    if old in js:
+        js = js.replace(old, new)
+        patched_logo = True
+
+login_logo_old = ':c.jsx(lE,{className:"w-36 max-h-16 mx-auto"}),c.jsx(bs,{className:"min-h-80'
+login_logo_new = ':c.jsx("img",{className:"w-full max-w-96 max-h-24 m-auto",style:{objectFit:"contain"},src:"img/header-logo.png",alt:"FiveM Shield"}),c.jsx(bs,{className:"min-h-80'
+if login_logo_old in js:
+    js = js.replace(login_logo_old, login_logo_new)
+    patched_logo = True
+
+login_logo_smaller = ':c.jsx("img",{className:"max-w-48 max-h-16 m-auto",style:{objectFit:"contain"},src:"img/header-logo.png",alt:"FiveM Shield"}),c.jsx(bs,{className:"min-h-80'
+if login_logo_smaller in js:
+    js = js.replace(login_logo_smaller, login_logo_new)
+    patched_logo = True
+
+if "discord.gg/uAmsGa2" in js:
+    js = js.replace("https://discord.gg/uAmsGa2", custom_discord_url)
+    patched_discord = True
+
+if 'src:"img/discord.png"' in js:
+    js = js.replace('src:"img/discord.png"', 'src:"img/custom-logo.png"')
+    patched_discord = True
+
+discord_btn_text = "FIVEMSHIELD.NET Discord"
+discord_btn_new = (
+    'c.jsxs("div",{className:"relative flex flex-row items-center justify-center gap-2 h-full w-full px-2",'
+    'children:[c.jsx("img",{className:"h-10 w-10 rounded shrink-0",style:{objectFit:"contain"},'
+    'src:"img/custom-logo.png"}),c.jsx("span",{className:"text-xs font-semibold leading-tight",'
+    f'children:"{discord_btn_text}"})]})'
+)
+
+discord_btn_broken = (
+    'c.jsxs("div",{className:"flex flex-row items-center justify-center gap-2 h-full w-full px-3",'
+    'children:[c.jsx("img",{className:"rounded-lg max-h-12 max-w-16 object-contain shrink-0",'
+    'src:"img/custom-logo.png"}),c.jsx("span",{className:"text-sm font-semibold leading-tight text-center",'
+    f'children:"{discord_btn_text}"})]})'
+)
+if discord_btn_broken in js:
+    js = js.replace(discord_btn_broken, discord_btn_new)
+    patched_discord = True
+
+discord_anchor_fixed = (
+    'onClick:ZS,target:"_blank",className:`w-48 h-16 relative group shadow-sm opacity-90 hover:opacity-100 brightness-110 overflow-hidden\n'
+    '                        dark:brightness-95 dark:hover:brightness-110`,children:[c.jsx("div",{className:`absolute inset-0 -z-10 animate-pulse blur \n'
+    '                        scale-0 group-hover:scale-100 transition-transform bg-black\n'
+    '                        dark:bg-gradient-to-t dark:from-[#8567EC] dark:to-[#BD5CBF]`}),' + discord_btn_new + ']})]}),c.jsxs("div",{className:"text-center text-muted-foreground text-sm font-light"'
+)
+
+discord_anchor_old = (
+    'onClick:ZS,target:"_blank",className:`w-48 h-16 relative group shadow-sm opacity-90 hover:opacity-100 brightness-110\n'
+    '                        dark:brightness-95 dark:hover:brightness-110`,children:[c.jsx("div",{className:`absolute inset-0 -z-10 animate-pulse blur \n'
+    '                        scale-0 group-hover:scale-100 transition-transform bg-black\n'
+    '                        dark:bg-gradient-to-t dark:from-[#8567EC] dark:to-[#BD5CBF]`}),c.jsx("img",{className:"rounded-lg max-w-48 max-h-16 m-auto",src:"img/discord.png"})]})]}),c.jsxs("div",{className:"text-center text-muted-foreground text-sm font-light"'
+)
+if discord_anchor_old in js:
+    js = js.replace(discord_anchor_old, discord_anchor_fixed)
+    patched_discord = True
+
+discord_anchor_broken = (
+    'onClick:ZS,target:"_blank",className:`min-w-[14rem] w-auto h-16 relative group shadow-sm opacity-90 hover:opacity-100 brightness-110\n'
+    '                        dark:brightness-95 dark:hover:brightness-110`,children:[c.jsx("div",{className:`absolute inset-0 -z-10 animate-pulse blur \n'
+    '                        scale-0 group-hover:scale-100 transition-transform bg-black\n'
+    '                        dark:bg-gradient-to-t dark:from-[#8567EC] dark:to-[#BD5CBF]`}),' + discord_btn_broken + ']})]}),c.jsxs("div",{className:"text-center text-muted-foreground text-sm font-light"'
+)
+if discord_anchor_broken in js:
+    js = js.replace(discord_anchor_broken, discord_anchor_fixed)
+    patched_discord = True
+
+discord_btn_old_img = 'c.jsx("img",{className:"rounded-lg max-w-48 max-h-16 m-auto",src:"img/custom-logo.png"})'
+discord_anchor_mid = (
+    'onClick:ZS,target:"_blank",className:`w-48 h-16 relative group shadow-sm opacity-90 hover:opacity-100 brightness-110\n'
+    '                        dark:brightness-95 dark:hover:brightness-110`,children:[c.jsx("div",{className:`absolute inset-0 -z-10 animate-pulse blur \n'
+    '                        scale-0 group-hover:scale-100 transition-transform bg-black\n'
+    '                        dark:bg-gradient-to-t dark:from-[#8567EC] dark:to-[#BD5CBF]`}),' + discord_btn_old_img + ']})]}),c.jsxs("div",{className:"text-center text-muted-foreground text-sm font-light"'
+)
+if discord_anchor_mid in js:
+    js = js.replace(discord_anchor_mid, discord_anchor_fixed)
+    patched_discord = True
+
+partner_advert_old = (
+    'function hW({placement:e}){const[t]=w.useState(()=>fOe(e)),n=e==="login",r=n?"192x64":"256x80",'
+    'i=window.txConsts.isWebInterface?"":"nui://monitor/web/public/";return c.jsxs("a",{href:t.link,onClick:ZS,'
+    'target:"_blank",className:Y("relative self-center group shadow-sm","brightness-125 opacity-80 hover:opacity-100",'
+    '"dark:brightness-100 dark:hover:brightness-125",n?"w-48 h-16":"w-sidebar h-[80px]"),children:[c.jsx("div",'
+    '{className:"absolute inset-0 -z-10 =animate-pulse blur scale-0 group-hover:scale-100 transition-transform bg-black '
+    'dark:bg-gradient-to-r dark:from-[#18E889] dark:to-[#01FFFF]"}),c.jsx("img",{className:Y("rounded-lg hover:outline outline-2 m-auto hover:saturate-150",'
+    'n?"max-w-48 max-h-16":"max-w-sidebar max-h-[80px]"),src:`${i}/img/advert-${t.name}-${r}.png`})]})}'
+)
+partner_advert_new = (
+    'function hW({placement:e}){const n=e==="login",i=window.txConsts.isWebInterface?"":"nui://monitor/web/public/";'
+    'return c.jsx("a",{href:"https://fivemshield.net",onClick:ZS,target:"_blank",className:Y("relative self-center shadow-sm opacity-80 hover:opacity-100",'
+    'n?"w-48 h-16":"w-sidebar h-[80px]"),children:c.jsx("img",{className:Y("rounded-lg m-auto",n?"max-w-48 max-h-16":"max-w-sidebar max-h-[80px]"),'
+    'style:{objectFit:"contain"},src:`${i}/img/partner-banner.png`})})}'
+)
+if partner_advert_old in js:
+    js = js.replace(partner_advert_old, partner_advert_new)
+    patched_partner = True
+
+if js == original:
+    print("already_patched")
+    sys.exit(0)
+
+if not patched_logo and not patched_discord and not patched_partner:
+    print("patch_failed")
+    sys.exit(1)
 
 with open(path, "w", encoding="utf-8") as f:
     f.write(js)
 
-print("patched")
+if patched_logo and patched_discord and patched_partner:
+    print("patched")
+elif patched_logo:
+    print("patched_logo")
+elif patched_discord:
+    print("patched_discord")
+elif patched_partner:
+    print("patched_partner")
+else:
+    print("patched")
 PYEOF
 )
 
     case "$patch_result" in
         patched)
+            log "SUCCESS" "txAdmin panel patched with custom logo and Discord link"
+            echo -e "${green}✓ txAdmin custom logo and Discord button applied${reset}"
+            ;;
+        patched_logo)
             log "SUCCESS" "txAdmin panel patched with custom logo"
             echo -e "${green}✓ txAdmin custom logo applied${reset}"
             ;;
+        patched_discord)
+            log "SUCCESS" "txAdmin Discord button patched"
+            echo -e "${green}✓ txAdmin Discord button updated to FiveM Shield${reset}"
+            ;;
+        patched_partner)
+            log "SUCCESS" "txAdmin partner banner patched"
+            echo -e "${green}✓ txAdmin partner banner updated to FiveM Shield${reset}"
+            ;;
         already_patched)
-            log "INFO" "txAdmin panel already uses custom logo"
-            echo -e "${green}✓ txAdmin custom logo already configured${reset}"
+            log "INFO" "txAdmin panel already customized"
+            echo -e "${green}✓ txAdmin branding already configured${reset}"
             ;;
         *)
             log "WARN" "Could not patch txAdmin panel JS (txAdmin version may have changed)"

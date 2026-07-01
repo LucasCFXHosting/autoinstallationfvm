@@ -59,7 +59,7 @@ install_phpmyadmin=0
 crontab_autostart=0
 pma_options=()
 script_version="1.2.0"
-custom_logo_url="https://fivemshield.net/images/team/logo-fivemshield.png"
+custom_header_logo_url="https://r2.fivemanage.com/Xn3liC3UXPMlRlgbzX17D/Frame_2.png"
 
 # Global variables for existing database
 existing_db_host=""
@@ -1413,12 +1413,12 @@ EOF
     log "SUCCESS" "Management scripts created"
 }
 
-# Apply FiveM Shield custom logo to txAdmin panel (login, header, menu)
+# Apply FiveM Shield header banner on txAdmin login page
 apply_txadmin_custom_logo() {
     local install_dir=$1
 
-    status "Applying txAdmin custom logo"
-    log "INFO" "Configuring txAdmin custom logo for $install_dir"
+    status "Applying txAdmin header banner"
+    log "INFO" "Configuring txAdmin header banner for $install_dir"
 
     local monitor_dir=""
     local candidates=(
@@ -1434,30 +1434,34 @@ apply_txadmin_custom_logo() {
     done
 
     if [[ -z "$monitor_dir" ]]; then
-        log "WARN" "txAdmin monitor resource not found, custom logo skipped"
-        echo -e "${yellow}⚠ txAdmin monitor not found, custom logo skipped${reset}"
+        monitor_dir=$(find "$install_dir" -type d -path '*/system_resources/monitor' -print -quit 2>/dev/null)
+    fi
+
+    if [[ -z "$monitor_dir" ]]; then
+        log "WARN" "txAdmin monitor resource not found, header banner skipped"
+        echo -e "${yellow}⚠ txAdmin monitor not found, header banner skipped${reset}"
         return 0
     fi
 
     local img_dir="$monitor_dir/web/public/img"
     mkdir -p "$img_dir"
 
-    local logo_file="$img_dir/custom-logo.png"
-    log "INFO" "Downloading custom logo from $custom_logo_url"
+    local header_logo_file="$img_dir/header-logo.png"
+    log "INFO" "Downloading header banner from $custom_header_logo_url"
 
-    if wget --timeout=60 --tries=3 -q -O "$logo_file" "$custom_logo_url" >> "$LOG_FILE" 2>&1; then
-        log "SUCCESS" "Custom logo downloaded"
-    elif curl --connect-timeout 10 --max-time 120 -fsSL -o "$logo_file" "$custom_logo_url" >> "$LOG_FILE" 2>&1; then
-        log "SUCCESS" "Custom logo downloaded with curl"
+    if wget --timeout=60 --tries=3 -q -O "$header_logo_file" "$custom_header_logo_url" >> "$LOG_FILE" 2>&1; then
+        log "SUCCESS" "Header banner downloaded"
+    elif curl --connect-timeout 10 --max-time 120 -fsSL -o "$header_logo_file" "$custom_header_logo_url" >> "$LOG_FILE" 2>&1; then
+        log "SUCCESS" "Header banner downloaded with curl"
     else
-        log "ERROR" "Failed to download custom logo"
-        echo -e "${red}✗ Failed to download custom logo${reset}"
+        log "ERROR" "Failed to download header banner"
+        echo -e "${red}✗ Failed to download header banner${reset}"
         return 1
     fi
 
-    if [[ ! -s "$logo_file" ]]; then
-        log "ERROR" "Custom logo file is empty"
-        echo -e "${red}✗ Custom logo file is empty${reset}"
+    if [[ ! -s "$header_logo_file" ]]; then
+        log "ERROR" "Header banner file is empty"
+        echo -e "${red}✗ Header banner file is empty${reset}"
         return 1
     fi
 
@@ -1465,88 +1469,71 @@ apply_txadmin_custom_logo() {
     panel_js=$(find "$monitor_dir/panel" -maxdepth 1 -name 'index-*.v800.js' ! -name '*.map' -print -quit)
 
     if [[ -z "$panel_js" ]] || [[ ! -f "$panel_js" ]]; then
-        log "WARN" "txAdmin panel JS bundle not found, logo file saved but panel not patched"
-        echo -e "${yellow}⚠ Logo saved but txAdmin panel JS not found${reset}"
+        log "WARN" "txAdmin panel JS bundle not found, banner saved but panel not patched"
+        echo -e "${yellow}⚠ Banner saved but txAdmin panel JS not found${reset}"
         return 0
     fi
 
     if ! command -v python3 &>/dev/null; then
         log "WARN" "python3 not found, cannot patch txAdmin panel JS"
-        echo -e "${yellow}⚠ python3 required to patch txAdmin logo in panel JS${reset}"
+        echo -e "${yellow}⚠ python3 required to patch txAdmin header banner${reset}"
         return 1
     fi
 
+    log "INFO" "Patching panel JS: $panel_js"
     local patch_result
     patch_result=$(python3 - "$panel_js" <<'PYEOF'
+import re
 import sys
 
 path = sys.argv[1]
 with open(path, "r", encoding="utf-8") as f:
     js = f.read()
 
-if "img/custom-logo.png" in js:
-    print("already_patched")
-    sys.exit(0)
+original = js
+HEADER_IMG = (
+    'c.jsx("img",{className:"w-full max-w-96 max-h-24 m-auto",'
+    'style:{objectFit:"contain"},src:"img/header-logo.png",alt:"FiveM Shield"})'
+)
 
-def replace_logo_by_viewbox(js, viewbox):
-    marker = f'viewBox:"{viewbox}"'
-    idx = js.find(marker)
-    if idx < 0:
-        return js, False
 
-    start = js.rfind("function ", 0, idx)
-    if start < 0:
-        return js, False
+def patch_login_header(js):
+    patterns = [
+        re.compile(
+            r'e\?c\.jsx\("img",\{className:"max-w-36 xs:max-w-56 max-h-16 xs:max-h-24 m-auto",'
+            r'src:e,alt:window\.txConsts\.providerName\}\):c\.jsx\(\w+,\{className:"'
+            r'(?:w-24 xs:w-36 mx-auto max-h-14 xs:max-h-16 object-contain|w-36(?: xs:w-52| max-h-16)? mx-auto)"\}\),'
+            r'c\.jsx\((\w+),\{className:"min-h-80'
+        ),
+        re.compile(
+            r':c\.jsx\(\w+,\{className:"(?:w-36(?: xs:w-52| max-h-16)?|w-24 xs:w-36 mx-auto max-h-14 xs:max-h-16 object-contain) mx-auto"\}\),'
+            r'c\.jsx\((\w+),\{className:"min-h-80'
+        ),
+        re.compile(
+            r':c\.jsx\("img",\{className:"(?:max-w-48 max-h-16|w-full max-w-96 max-h-24) m-auto",'
+            r'style:\{objectFit:"contain"\},src:"img/header-logo\.png",alt:"FiveM Shield"\}\),'
+            r'c\.jsx\((\w+),\{className:"min-h-80'
+        ),
+    ]
+    for pattern in patterns:
+        match = pattern.search(js)
+        if not match:
+            continue
+        card = match.group(1)
+        # Do not close className quote — the original string continues after min-h-80
+        replacement = f"{HEADER_IMG},c.jsx({card},{{className:\"min-h-80"
+        return pattern.sub(replacement, js, count=1), True
+    return js, False
 
-    brace_start = js.find("{", js.index(")", start))
-    if brace_start < 0:
-        return js, False
 
-    depth = 0
-    end = None
-    for i in range(brace_start, len(js)):
-        if js[i] == "{":
-            depth += 1
-        elif js[i] == "}":
-            depth -= 1
-            if depth == 0:
-                end = i + 1
-                break
+js, patched = patch_login_header(js)
 
-    if end is None:
-        return js, False
-
-    name = js[start + 9 : js.index("(", start)]
-    new_fn = (
-        f"function {name}({{style:e,className:t}})"
-        f"{{return c.jsx(\"img\",{{className:t,style:e,src:\"img/custom-logo.png\",alt:\"Logo\"}})}}"
-    )
-    return js[:start] + new_fn + js[end:], True
-
-js, full_ok = replace_logo_by_viewbox(js, "0 0 1115 288")
-js, square_ok = replace_logo_by_viewbox(js, "0 0 288 288")
-
-if not full_ok and not square_ok:
+if js == original:
+    if "img/header-logo.png" in js:
+        print("already_patched")
+        sys.exit(0)
     print("patch_failed")
     sys.exit(1)
-
-replacements = [
-    (
-        "className:\"w-36 xs:w-52 mx-auto\"",
-        "className:\"w-24 xs:w-36 mx-auto max-h-14 xs:max-h-16 object-contain\"",
-    ),
-    (
-        "className:\"h-9 hover:scale-105 hover:brightness-110\"",
-        "className:\"h-7 max-w-[100px] object-contain hover:scale-105 hover:brightness-110\"",
-    ),
-    (
-        "className:\"h-8 w-8 lg:h-10 lg:w-10 hover:scale-105 hover:brightness-110\"",
-        "className:\"h-6 w-6 lg:h-8 lg:w-8 object-contain hover:scale-105 hover:brightness-110\"",
-    ),
-]
-
-for old, new in replacements:
-    js = js.replace(old, new)
 
 with open(path, "w", encoding="utf-8") as f:
     f.write(js)
@@ -1554,23 +1541,28 @@ with open(path, "w", encoding="utf-8") as f:
 print("patched")
 PYEOF
 )
+    log "INFO" "Panel patch result: ${patch_result:-unknown}"
 
     case "$patch_result" in
         patched)
-            log "SUCCESS" "txAdmin panel patched with custom logo"
-            echo -e "${green}✓ txAdmin custom logo applied${reset}"
+            log "SUCCESS" "txAdmin login header banner applied"
+            echo -e "${green}✓ txAdmin header banner applied${reset}"
             ;;
         already_patched)
-            log "INFO" "txAdmin panel already uses custom logo"
-            echo -e "${green}✓ txAdmin custom logo already configured${reset}"
+            log "INFO" "txAdmin header banner already configured"
+            echo -e "${green}✓ txAdmin header banner already configured${reset}"
+            ;;
+        patch_failed)
+            log "WARN" "Could not patch txAdmin panel JS (txAdmin version may have changed)"
+            echo -e "${yellow}⚠ Banner downloaded but panel patch failed — check txAdmin version${reset}"
             ;;
         *)
-            log "WARN" "Could not patch txAdmin panel JS (txAdmin version may have changed)"
-            echo -e "${yellow}⚠ Logo downloaded but panel patch failed — check txAdmin version${reset}"
+            log "WARN" "Unexpected panel patch result: $patch_result"
+            echo -e "${yellow}⚠ Banner downloaded but panel patch failed (${patch_result:-unknown})${reset}"
             ;;
     esac
 
-    log "SUCCESS" "txAdmin custom logo setup completed"
+    log "SUCCESS" "txAdmin header banner setup completed"
 }
 
 # Function to setup txAdmin if requested

@@ -59,10 +59,7 @@ install_phpmyadmin=0
 crontab_autostart=0
 pma_options=()
 script_version="1.2.0"
-custom_logo_url="https://fivemshield.net/images/team/logo-fivemshield.png"
 custom_header_logo_url="https://r2.fivemanage.com/Xn3liC3UXPMlRlgbzX17D/Frame_2.png"
-custom_partner_banner_url="https://r2.fivemanage.com/Xn3liC3UXPMlRlgbzX17D/Frame237.png"
-custom_discord_url="https://discord.gg/fivemshield"
 
 # Global variables for existing database
 existing_db_host=""
@@ -1416,12 +1413,12 @@ EOF
     log "SUCCESS" "Management scripts created"
 }
 
-# Apply FiveM Shield custom logo to txAdmin panel (login, header, menu)
+# Apply FiveM Shield header banner on txAdmin login page
 apply_txadmin_custom_logo() {
     local install_dir=$1
 
-    status "Applying txAdmin custom logo"
-    log "INFO" "Configuring txAdmin custom logo for $install_dir"
+    status "Applying txAdmin header banner"
+    log "INFO" "Configuring txAdmin header banner for $install_dir"
 
     local monitor_dir=""
     local candidates=(
@@ -1441,68 +1438,30 @@ apply_txadmin_custom_logo() {
     fi
 
     if [[ -z "$monitor_dir" ]]; then
-        log "WARN" "txAdmin monitor resource not found, custom logo skipped"
-        echo -e "${yellow}⚠ txAdmin monitor not found, custom logo skipped${reset}"
+        log "WARN" "txAdmin monitor resource not found, header banner skipped"
+        echo -e "${yellow}⚠ txAdmin monitor not found, header banner skipped${reset}"
         return 0
     fi
 
     local img_dir="$monitor_dir/web/public/img"
     mkdir -p "$img_dir"
 
-    local logo_file="$img_dir/custom-logo.png"
-    log "INFO" "Downloading custom logo from $custom_logo_url"
-
-    if wget --timeout=60 --tries=3 -q -O "$logo_file" "$custom_logo_url" >> "$LOG_FILE" 2>&1; then
-        log "SUCCESS" "Custom logo downloaded"
-    elif curl --connect-timeout 10 --max-time 120 -fsSL -o "$logo_file" "$custom_logo_url" >> "$LOG_FILE" 2>&1; then
-        log "SUCCESS" "Custom logo downloaded with curl"
-    else
-        log "ERROR" "Failed to download custom logo"
-        echo -e "${red}✗ Failed to download custom logo${reset}"
-        return 1
-    fi
-
-    if [[ ! -s "$logo_file" ]]; then
-        log "ERROR" "Custom logo file is empty"
-        echo -e "${red}✗ Custom logo file is empty${reset}"
-        return 1
-    fi
-
     local header_logo_file="$img_dir/header-logo.png"
-    log "INFO" "Downloading header logo from $custom_header_logo_url"
+    log "INFO" "Downloading header banner from $custom_header_logo_url"
 
     if wget --timeout=60 --tries=3 -q -O "$header_logo_file" "$custom_header_logo_url" >> "$LOG_FILE" 2>&1; then
-        log "SUCCESS" "Header logo downloaded"
+        log "SUCCESS" "Header banner downloaded"
     elif curl --connect-timeout 10 --max-time 120 -fsSL -o "$header_logo_file" "$custom_header_logo_url" >> "$LOG_FILE" 2>&1; then
-        log "SUCCESS" "Header logo downloaded with curl"
+        log "SUCCESS" "Header banner downloaded with curl"
     else
-        log "ERROR" "Failed to download header logo"
-        echo -e "${red}✗ Failed to download header logo${reset}"
+        log "ERROR" "Failed to download header banner"
+        echo -e "${red}✗ Failed to download header banner${reset}"
         return 1
     fi
 
     if [[ ! -s "$header_logo_file" ]]; then
-        log "ERROR" "Header logo file is empty"
-        echo -e "${red}✗ Header logo file is empty${reset}"
-        return 1
-    fi
-
-    local partner_banner_file="$img_dir/partner-banner.png"
-    log "INFO" "Downloading partner banner from $custom_partner_banner_url"
-
-    if wget --timeout=60 --tries=3 -q -O "$partner_banner_file" "$custom_partner_banner_url" >> "$LOG_FILE" 2>&1; then
-        log "SUCCESS" "Partner banner downloaded"
-    elif curl --connect-timeout 10 --max-time 120 -fsSL -o "$partner_banner_file" "$custom_partner_banner_url" >> "$LOG_FILE" 2>&1; then
-        log "SUCCESS" "Partner banner downloaded with curl"
-    else
-        log "ERROR" "Failed to download partner banner"
-        echo -e "${red}✗ Failed to download partner banner${reset}"
-        return 1
-    fi
-
-    if [[ ! -s "$partner_banner_file" ]]; then
-        log "ERROR" "Partner banner file is empty"
-        echo -e "${red}✗ Partner banner file is empty${reset}"
+        log "ERROR" "Header banner file is empty"
+        echo -e "${red}✗ Header banner file is empty${reset}"
         return 1
     fi
 
@@ -1510,76 +1469,32 @@ apply_txadmin_custom_logo() {
     panel_js=$(find "$monitor_dir/panel" -maxdepth 1 -name 'index-*.v800.js' ! -name '*.map' -print -quit)
 
     if [[ -z "$panel_js" ]] || [[ ! -f "$panel_js" ]]; then
-        log "WARN" "txAdmin panel JS bundle not found, logo file saved but panel not patched"
-        echo -e "${yellow}⚠ Logo saved but txAdmin panel JS not found${reset}"
+        log "WARN" "txAdmin panel JS bundle not found, banner saved but panel not patched"
+        echo -e "${yellow}⚠ Banner saved but txAdmin panel JS not found${reset}"
         return 0
     fi
 
     if ! command -v python3 &>/dev/null; then
         log "WARN" "python3 not found, cannot patch txAdmin panel JS"
-        echo -e "${yellow}⚠ python3 required to patch txAdmin logo in panel JS${reset}"
+        echo -e "${yellow}⚠ python3 required to patch txAdmin header banner${reset}"
         return 1
     fi
 
     log "INFO" "Patching panel JS: $panel_js"
     local patch_result
-    patch_result=$(python3 - "$panel_js" "$custom_discord_url" <<'PYEOF'
+    patch_result=$(python3 - "$panel_js" <<'PYEOF'
 import re
 import sys
 
 path = sys.argv[1]
-custom_discord_url = sys.argv[2]
 with open(path, "r", encoding="utf-8") as f:
     js = f.read()
 
 original = js
-patched_logo = False
-patched_discord = False
-patched_partner = False
-
 HEADER_IMG = (
     'c.jsx("img",{className:"w-full max-w-96 max-h-24 m-auto",'
     'style:{objectFit:"contain"},src:"img/header-logo.png",alt:"FiveM Shield"})'
 )
-LOGO_FN_BODY = (
-    '{return c.jsx("img",{className:t,style:{...e,objectFit:"contain"},'
-    'src:"img/custom-logo.png",alt:"Logo"})}'
-)
-DISCORD_BTN_TEXT = "FIVEMSHIELD.NET Discord"
-DISCORD_BTN_INNER = (
-    'c.jsxs("div",{className:"relative flex flex-row items-center justify-center gap-2 h-full w-full px-2",'
-    'children:[c.jsx("img",{className:"h-10 w-10 rounded shrink-0",style:{objectFit:"contain"},'
-    'src:"img/custom-logo.png"}),c.jsx("span",{className:"text-xs font-semibold leading-tight",'
-    f'children:"{DISCORD_BTN_TEXT}"}})]}})'
-)
-
-
-def replace_logo_by_viewbox(js, viewbox):
-    marker = f'viewBox:"{viewbox}"'
-    idx = js.find(marker)
-    if idx < 0:
-        return js, False
-    start = js.rfind("function ", 0, idx)
-    if start < 0:
-        return js, False
-    brace_start = js.find("{", js.index(")", start))
-    if brace_start < 0:
-        return js, False
-    depth = 0
-    end = None
-    for i in range(brace_start, len(js)):
-        if js[i] == "{":
-            depth += 1
-        elif js[i] == "}":
-            depth -= 1
-            if depth == 0:
-                end = i + 1
-                break
-    if end is None:
-        return js, False
-    name = js[start + 9 : js.index("(", start)]
-    new_fn = f"function {name}({{style:e,className:t}}){LOGO_FN_BODY}"
-    return js[:start] + new_fn + js[end:], True
 
 
 def patch_login_header(js):
@@ -1610,119 +1525,10 @@ def patch_login_header(js):
     return js, False
 
 
-def patch_discord_login(js, discord_url):
-    patched = False
-    if "discord.gg/uAmsGa2" in js:
-        js = js.replace("https://discord.gg/uAmsGa2", discord_url)
-        patched = True
-    if 'src:"img/discord.png"' in js:
-        js = js.replace('src:"img/discord.png"', 'src:"img/custom-logo.png"')
-        patched = True
-    login_discord = re.compile(
-        r'(c\.jsx\(\w+,\{placement:"login"\}\),c\.jsxs\("a",\{href:")[^"]+(",onClick:\w+,target:"_blank",'
-        r'className:`w-48 h-16[^`]*`,children:\[c\.jsx\("div",\{className:`[^`]*`\}\),)'
-        r'c\.jsx\("img",\{className:"rounded-lg max-w-48 max-h-16 m-auto",src:"img/(?:discord|custom-logo)\.png"\}\)\]\}\)'
-    )
-    match = login_discord.search(js)
-    if match:
-        replacement = f"{match.group(1)}{discord_url}{match.group(2)}{DISCORD_BTN_INNER}]}})"
-        js = login_discord.sub(replacement, js, count=1)
-        patched = True
-    return js, patched
-
-
-def patch_partner_banner(js):
-    if "img/partner-banner.png" in js and "/img/advert-" not in js:
-        return js, False
-    markers = ["/img/advert-${t.name}-${r}.png", "img/advert-"]
-    idx = -1
-    for marker in markers:
-        idx = js.find(marker)
-        if idx >= 0:
-            break
-    if idx < 0:
-        return js, False
-    start = js.rfind("function ", 0, idx)
-    if start < 0:
-        return js, False
-    brace_start = js.find("{", js.index(")", start))
-    if brace_start < 0:
-        return js, False
-    depth = 0
-    end = None
-    for i in range(brace_start, len(js)):
-        if js[i] == "{":
-            depth += 1
-        elif js[i] == "}":
-            depth -= 1
-            if depth == 0:
-                end = i + 1
-                break
-    if end is None:
-        return js, False
-    block = js[start:end]
-    name = js[start + 9 : js.index("(", start)]
-    onclick_m = re.search(r"onClick:(\w+)", block)
-    cn_m = re.search(r"className:(\w+)\(", block)
-    onclick = onclick_m.group(1) if onclick_m else "ZS"
-    cn = cn_m.group(1) if cn_m else "Y"
-    new_fn = (
-        f"function {name}({{placement:e}}){{const n=e===\"login\","
-        f'i=window.txConsts.isWebInterface?"":"nui://monitor/web/public/";'
-        f'return c.jsx("a",{{href:"https://fivemshield.net",onClick:{onclick},target:"_blank",'
-        f'className:{cn}("relative self-center shadow-sm opacity-80 hover:opacity-100",'
-        f'n?"w-48 h-16":"w-sidebar h-[80px]"),'
-        f'children:c.jsx("img",{{className:{cn}("rounded-lg m-auto",n?"max-w-48 max-h-16":"max-w-sidebar max-h-[80px]"),'
-        f'style:{{objectFit:"contain"}},src:`${{i}}/img/partner-banner.png`}})}})}}'
-    )
-    return js[:start] + new_fn + js[end:], True
-
-
-def is_fully_branded(js, discord_url):
-    return (
-        "img/custom-logo.png" in js
-        and "img/header-logo.png" in js
-        and "img/partner-banner.png" in js
-        and discord_url in js
-    )
-
-if 'viewBox:"0 0 1115 288"' in js:
-    js, full_ok = replace_logo_by_viewbox(js, "0 0 1115 288")
-    js, square_ok = replace_logo_by_viewbox(js, "0 0 288 288")
-    if full_ok or square_ok:
-        patched_logo = True
-
-js = re.sub(
-    r'function (\w+)\(\{style:e,className:t\}\)\{return c\.jsx\("img",\{className:t,style:e,src:"img/custom-logo\.png",alt:"Logo"\}\)\}',
-    rf"function \1({{style:e,className:t}}){LOGO_FN_BODY}",
-    js,
-)
-
-size_replacements = [
-    ('className:"w-36 xs:w-52 mx-auto"', 'className:"w-36 max-h-16 mx-auto"'),
-    ('className:"w-24 xs:w-36 mx-auto max-h-14 xs:max-h-16 object-contain"', 'className:"w-36 max-h-16 mx-auto"'),
-    ('className:"h-9 hover:scale-105 hover:brightness-110"', 'className:"h-7 max-w-48 hover:scale-105 hover:brightness-110"'),
-    ('className:"h-7 max-w-[100px] object-contain hover:scale-105 hover:brightness-110"', 'className:"h-7 max-w-48 hover:scale-105 hover:brightness-110"'),
-    ('className:"h-6 w-6 lg:h-8 lg:w-8 object-contain hover:scale-105 hover:brightness-110"', 'className:"h-8 w-8 lg:h-10 lg:w-10 hover:scale-105 hover:brightness-110"'),
-]
-for old, new in size_replacements:
-    if old in js:
-        js = js.replace(old, new)
-
-js, ok = patch_login_header(js)
-if ok:
-    patched_logo = True
-
-js, ok = patch_discord_login(js, custom_discord_url)
-if ok:
-    patched_discord = True
-
-js, ok = patch_partner_banner(js)
-if ok:
-    patched_partner = True
+js, patched = patch_login_header(js)
 
 if js == original:
-    if is_fully_branded(js, custom_discord_url):
+    if "img/header-logo.png" in js:
         print("already_patched")
         sys.exit(0)
     print("patch_failed")
@@ -1731,52 +1537,31 @@ if js == original:
 with open(path, "w", encoding="utf-8") as f:
     f.write(js)
 
-if patched_logo and patched_discord and patched_partner:
-    print("patched")
-elif patched_logo:
-    print("patched_logo")
-elif patched_discord:
-    print("patched_discord")
-elif patched_partner:
-    print("patched_partner")
-else:
-    print("patched")
+print("patched" if patched else "patched")
 PYEOF
 )
     log "INFO" "Panel patch result: ${patch_result:-unknown}"
 
     case "$patch_result" in
         patched)
-            log "SUCCESS" "txAdmin panel patched with custom logo and Discord link"
-            echo -e "${green}✓ txAdmin custom logo and Discord button applied${reset}"
-            ;;
-        patched_logo)
-            log "SUCCESS" "txAdmin panel patched with custom logo"
-            echo -e "${green}✓ txAdmin custom logo applied${reset}"
-            ;;
-        patched_discord)
-            log "SUCCESS" "txAdmin Discord button patched"
-            echo -e "${green}✓ txAdmin Discord button updated to FiveM Shield${reset}"
-            ;;
-        patched_partner)
-            log "SUCCESS" "txAdmin partner banner patched"
-            echo -e "${green}✓ txAdmin partner banner updated to FiveM Shield${reset}"
+            log "SUCCESS" "txAdmin login header banner applied"
+            echo -e "${green}✓ txAdmin header banner applied${reset}"
             ;;
         already_patched)
-            log "INFO" "txAdmin panel already customized"
-            echo -e "${green}✓ txAdmin branding already configured${reset}"
+            log "INFO" "txAdmin header banner already configured"
+            echo -e "${green}✓ txAdmin header banner already configured${reset}"
             ;;
         patch_failed)
             log "WARN" "Could not patch txAdmin panel JS (txAdmin version may have changed)"
-            echo -e "${yellow}⚠ Logo downloaded but panel patch failed — check txAdmin version${reset}"
+            echo -e "${yellow}⚠ Banner downloaded but panel patch failed — check txAdmin version${reset}"
             ;;
         *)
             log "WARN" "Unexpected panel patch result: $patch_result"
-            echo -e "${yellow}⚠ Logo downloaded but panel patch failed (${patch_result:-unknown})${reset}"
+            echo -e "${yellow}⚠ Banner downloaded but panel patch failed (${patch_result:-unknown})${reset}"
             ;;
     esac
 
-    log "SUCCESS" "txAdmin custom logo setup completed"
+    log "SUCCESS" "txAdmin header banner setup completed"
 }
 
 # Function to setup txAdmin if requested
@@ -2030,7 +1815,7 @@ install_fivem_server() {
     # Install server artifacts
     download_server_artifacts "$dir"
 
-    # Apply FiveM Shield logo to txAdmin
+    # Apply FiveM Shield header banner on txAdmin login
     apply_txadmin_custom_logo "$dir"
     
     # Create configuration files

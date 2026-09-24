@@ -829,24 +829,26 @@ validate_url() {
     fi
 }
 
-# Function to select FiveM version (based on your working method)
+# Function to select FiveM version using the new FiveM API
 selectVersion(){
-    log "INFO" "Retrieving available versions"
-    
-    # Use the simpler and more reliable method from the old script
-    readarray -t VERSIONS <<< $(curl -s https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master/ | egrep -m 3 -o '[0-9].*/fx.tar.xz')
-    
-    # Check if we found any versions
-    if [ ${#VERSIONS[@]} -eq 0 ]; then
-        log "ERROR" "No FiveM versions found in server response"
-        
+    log "INFO" "Retrieving available versions from FiveM API"
+
+    # Use the new FiveM changelog API to get version information
+    local api_url="https://changelogs-live.fivem.net/api/changelog/versions/linux/server"
+    local api_response
+
+    api_response=$(curl -s --connect-timeout 10 --max-time 30 "$api_url")
+
+    if [ -z "$api_response" ]; then
+        log "ERROR" "Failed to fetch version data from FiveM API"
+
         if [[ "${non_interactive}" == "false" ]]; then
             echo -e "${red}${bold}ERROR:${reset} Could not retrieve versions from FiveM server."
             echo -e "${yellow}Do you want to specify a custom download URL?${reset}"
-            
+
             export OPTIONS=("Yes" "No (exit)")
             bashSelect
-            
+
             case $? in
                 0)
                     echo -e "${bold}Enter the direct download URL for the FiveM artifact:${reset}"
@@ -860,102 +862,97 @@ selectVersion(){
         else
             cleanup_and_exit 1 "Could not retrieve FiveM versions in non-interactive mode."
         fi
+        return
     fi
 
-    # Extract full version strings
-    full_latest_recommended=$(echo "${VERSIONS[0]}" | cut -d'/' -f1)
-    full_latest=$(echo "${VERSIONS[2]}" | cut -d'/' -f1 2>/dev/null || echo "${VERSIONS[0]}" | cut -d'/' -f1)
-    
-    # Extract just the version numbers (before the dash if present)
-    latest_recommended=$(echo "$full_latest_recommended" | cut -d'-' -f1)
-    latest=$(echo "$full_latest" | cut -d'-' -f1)
-    
-    log "INFO" "Latest recommended version: $latest_recommended"
-    log "INFO" "Latest version: $latest"
+    # Extract version URLs from API response
+    # The API returns JSON with recommended_download and latest_download fields
+    local recommended_url latest_url recommended_build latest_build
+
+    # Try using jq if available, otherwise fall back to grep/sed
+    if command -v jq &> /dev/null; then
+        recommended_url=$(echo "$api_response" | jq -r '.recommended_download // empty')
+        latest_url=$(echo "$api_response" | jq -r '.latest_download // empty')
+        recommended_build=$(echo "$api_response" | jq -r '.recommended // empty')
+        latest_build=$(echo "$api_response" | jq -r '.latest // empty')
+    else
+        # Fallback: extract URLs using grep/sed
+        recommended_url=$(echo "$api_response" | grep -oP '"recommended_download"\s*:\s*"\K[^"]+' | head -1)
+        latest_url=$(echo "$api_response" | grep -oP '"latest_download"\s*:\s*"\K[^"]+' | head -1)
+        recommended_build=$(echo "$api_response" | grep -oP '"recommended"\s*:\s*\K[0-9]+' | head -1)
+        latest_build=$(echo "$api_response" | grep -oP '"latest"\s*:\s*\K[0-9]+' | head -1)
+    fi
+
+    # Validate we got the URLs
+    if [ -z "$recommended_url" ] || [ -z "$latest_url" ]; then
+        log "ERROR" "Could not parse version URLs from API response"
+
+        if [[ "${non_interactive}" == "false" ]]; then
+            echo -e "${red}${bold}ERROR:${reset} Could not parse FiveM version data."
+            echo -e "${yellow}Do you want to specify a custom download URL?${reset}"
+
+            export OPTIONS=("Yes" "No (exit)")
+            bashSelect
+
+            case $? in
+                0)
+                    echo -e "${bold}Enter the direct download URL for the FiveM artifact:${reset}"
+                    read -p "> " artifacts_version
+                    return
+                    ;;
+                1)
+                    cleanup_and_exit 1 "Installation cancelled by user."
+                    ;;
+            esac
+        else
+            cleanup_and_exit 1 "Could not parse FiveM versions in non-interactive mode."
+        fi
+        return
+    fi
+
+    log "INFO" "Latest recommended version: $recommended_build"
+    log "INFO" "Latest version: $latest_build"
 
     if [[ "${artifacts_version}" == "0" ]]; then
         if [[ "${non_interactive}" == "false" ]]; then
             status "Select a runtime version"
             echo -e "${cyan}FiveM requires a runtime version to operate. Select from the options below:${reset}\n"
-            
+
             # Create options array for bashSelect
             export OPTIONS=(
-                "Latest version → ${latest} (newest, may be experimental)"
-                "Latest recommended version → ${latest_recommended} (stable, recommended for production)"
-                "Choose custom version (advanced)"
+                "Latest version → ${latest_build} (newest, may be experimental)"
+                "Latest recommended version → ${recommended_build} (stable, recommended for production)"
+                "Enter custom download URL (advanced)"
                 "Exit without installing"
             )
-            
+
             bashSelect
             version_choice=$?
-            
+
             case $version_choice in
                 0)
-                    artifacts_version="https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master/${full_latest}/fx.tar.xz"
-                    log "INFO" "Selected version: latest version ($latest)"
-                    echo -e "${green}Selected version:${reset} Latest version (${bold}$latest${reset})"
+                    artifacts_version="$latest_url"
+                    log "INFO" "Selected version: latest version ($latest_build)"
+                    echo -e "${green}Selected version:${reset} Latest version (${bold}$latest_build${reset})"
                     ;;
                 1)
-                    artifacts_version="https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master/${full_latest_recommended}/fx.tar.xz"
-                    log "INFO" "Selected version: latest recommended version ($latest_recommended)"
-                    echo -e "${green}Selected version:${reset} Latest recommended version (${bold}$latest_recommended${reset})"
+                    artifacts_version="$recommended_url"
+                    log "INFO" "Selected version: latest recommended version ($recommended_build)"
+                    echo -e "${green}Selected version:${reset} Latest recommended version (${bold}$recommended_build${reset})"
                     ;;
                 2)
-                    clear
-                    echo -e "${bold}Available versions:${reset}"
-                    log "INFO" "Showing all available versions for user selection"
-                    
-                    # Get more versions to choose from
-                    local all_versions=$(curl -s https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master/ | egrep -o '[0-9][^/]*/fx.tar.xz' | head -10)
-                    
-                    # Create array of versions for bashSelect
-                    local version_options=()
-                    local version_urls=()
-                    local i=0
-                    
-                    echo -e "${cyan}Recent versions:${reset}"
-                    while read version && [ $i -lt 10 ]; do
-                        if [ -n "$version" ]; then
-                            # Extract just the version number (remove /fx.tar.xz)
-                            clean_version=${version%/fx.tar.xz}
-                            version_options+=("Version ${clean_version}")
-                            version_urls+=("https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master/$clean_version/fx.tar.xz")
-                            i=$((i+1))
-                        fi
-                    done <<< "$all_versions"
-                    
-                    # Add option for custom URL
-                    version_options+=("Enter custom version or URL")
-                    version_options+=("Go back to main version selection")
-                    
-                    export OPTIONS=("${version_options[@]}")
-                    bashSelect
-                    selected_index=$?
-                    
-                    if [ $selected_index -eq $((${#version_options[@]} - 1)) ]; then
-                        # Go back to main selection
-                        selectVersion
-                        return
-                    elif [ $selected_index -eq $((${#version_options[@]} - 2)) ]; then
-                        # Custom version/URL entry
-                        echo -e "${yellow}Enter a version number or paste a complete download URL:${reset}"
-                        read -p "> " custom_version
-                        
-                        # Check if it's a URL
-                        if [[ "$custom_version" =~ ^https?:// ]]; then
-                            artifacts_version="$custom_version"
-                        else
-                            artifacts_version="https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master/$custom_version/fx.tar.xz"
-                        fi
-                        log "INFO" "Custom version/URL selected: $artifacts_version"
-                        echo -e "${green}Custom selection:${reset} ${bold}$artifacts_version${reset}"
+                    echo -e "${yellow}Enter a complete download URL for the FiveM artifact:${reset}"
+                    echo -e "${blue}Example: https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master/XXXXX-hash/fx.tar.xz${reset}"
+                    read -p "> " custom_url
+
+                    if [[ "$custom_url" =~ ^https?:// ]]; then
+                        artifacts_version="$custom_url"
                     else
-                        # Selected a version from the list
-                        artifacts_version="${version_urls[$selected_index]}"
-                        selected_version=$(echo "${version_options[$selected_index]}" | sed 's/Version //')
-                        log "INFO" "Selected version by index: $selected_version"
-                        echo -e "${green}Selected version:${reset} ${bold}$selected_version${reset}"
+                        echo -e "${red}Invalid URL format. Using recommended version instead.${reset}"
+                        artifacts_version="$recommended_url"
                     fi
+                    log "INFO" "Custom URL selected: $artifacts_version"
+                    echo -e "${green}Custom selection:${reset} ${bold}$artifacts_version${reset}"
                     ;;
                 3)
                     log "INFO" "Installation cancelled by user"
@@ -969,13 +966,19 @@ selectVersion(){
             log "INFO" "Non-interactive mode: using latest version"
         fi
     fi
-    
+
     if [[ "${artifacts_version}" == "latest" ]]; then
-        artifacts_version="https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master/${full_latest}/fx.tar.xz"
-        log "INFO" "Using latest version: $latest"
-        echo -e "${green}Using latest version:${reset} ${bold}$latest${reset}"
+        artifacts_version="$latest_url"
+        log "INFO" "Using latest version: $latest_build"
+        echo -e "${green}Using latest version:${reset} ${bold}$latest_build${reset}"
     fi
-    
+
+    if [[ "${artifacts_version}" == "recommended" ]]; then
+        artifacts_version="$recommended_url"
+        log "INFO" "Using recommended version: $recommended_build"
+        echo -e "${green}Using recommended version:${reset} ${bold}$recommended_build${reset}"
+    fi
+
     # Validate the URL
     if ! validate_url "$artifacts_version"; then
         log "ERROR" "Invalid artifacts URL: $artifacts_version"
@@ -1902,41 +1905,70 @@ show_help() {
 # Function to list available artifacts versions
 list_artifacts_versions() {
     echo -e "${bold}Available FiveM Server Artifacts Versions:${reset}\n"
-    
-    echo -e "${blue}Fetching version information...${reset}"
-    
-    # Get recommended and latest from API
-    local recommended=$(curl -s "https://changelogs-live.fivem.net/api/changelog/versions/linux/server" 2>/dev/null | grep -o '"recommended":"[^"]*' | cut -d'"' -f4)
-    local latest=$(curl -s "https://changelogs-live.fivem.net/api/changelog/versions/linux/server" 2>/dev/null | grep -o '"latest":"[^"]*' | cut -d'"' -f4)
-    
-    # Get recent versions from artifacts page
-    local recent_versions=$(curl -s "https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master/" 2>/dev/null | grep -o 'href="[0-9]*/"' | grep -o '[0-9]*' | sort -nr | head -10)
-    
-    echo -e "${green}${bold}Recommended Versions:${reset}"
-    if [[ -n "$recommended" ]]; then
-        echo -e "${green}  • Recommended: ${bold}$recommended${reset}"
+
+    echo -e "${blue}Fetching version information from FiveM API...${reset}"
+
+    # Get version data from the official FiveM API
+    local api_url="https://changelogs-live.fivem.net/api/changelog/versions/linux/server"
+    local api_response
+
+    api_response=$(curl -s --connect-timeout 10 --max-time 30 "$api_url" 2>/dev/null)
+
+    if [ -z "$api_response" ]; then
+        echo -e "${red}ERROR: Could not fetch version data from FiveM API${reset}"
+        echo -e "${yellow}Check your internet connection and try again.${reset}"
+        return 1
     fi
+
+    # Extract version information
+    local recommended recommended_url latest latest_url critical critical_url
+
+    if command -v jq &> /dev/null; then
+        recommended=$(echo "$api_response" | jq -r '.recommended // empty')
+        recommended_url=$(echo "$api_response" | jq -r '.recommended_download // empty')
+        latest=$(echo "$api_response" | jq -r '.latest // empty')
+        latest_url=$(echo "$api_response" | jq -r '.latest_download // empty')
+        critical=$(echo "$api_response" | jq -r '.critical // empty')
+        critical_url=$(echo "$api_response" | jq -r '.critical_download // empty')
+    else
+        recommended=$(echo "$api_response" | grep -oP '"recommended"\s*:\s*\K[0-9]+' | head -1)
+        recommended_url=$(echo "$api_response" | grep -oP '"recommended_download"\s*:\s*"\K[^"]+' | head -1)
+        latest=$(echo "$api_response" | grep -oP '"latest"\s*:\s*\K[0-9]+' | head -1)
+        latest_url=$(echo "$api_response" | grep -oP '"latest_download"\s*:\s*"\K[^"]+' | head -1)
+        critical=$(echo "$api_response" | grep -oP '"critical"\s*:\s*\K[0-9]+' | head -1)
+        critical_url=$(echo "$api_response" | grep -oP '"critical_download"\s*:\s*"\K[^"]+' | head -1)
+    fi
+
+    echo -e "${green}${bold}Available Versions:${reset}"
+
     if [[ -n "$latest" ]]; then
-        echo -e "${green}  • Latest: ${bold}$latest${reset}"
+        echo -e "${cyan}  • Latest:      ${bold}$latest${reset} ${blue}(newest, may be experimental)${reset}"
     fi
-    
-    if [[ -n "$recent_versions" ]]; then
-        echo -e "\n${blue}${bold}Recent Versions (last 10):${reset}"
-        for version in $recent_versions; do
-            if [[ "$version" == "$recommended" ]]; then
-                echo -e "${green}  • $version ${bold}(recommended)${reset}"
-            elif [[ "$version" == "$latest" ]]; then
-                echo -e "${green}  • $version ${bold}(latest)${reset}"
-            else
-                echo -e "  • $version"
-            fi
-        done
+
+    if [[ -n "$recommended" ]]; then
+        echo -e "${green}  • Recommended: ${bold}$recommended${reset} ${green}(stable, recommended for production)${reset}"
     fi
-    
+
+    if [[ -n "$critical" ]] && [[ "$critical" != "$recommended" ]]; then
+        echo -e "${yellow}  • Critical:    ${bold}$critical${reset} ${yellow}(minimum supported version)${reset}"
+    fi
+
+    echo -e "\n${blue}${bold}Download URLs:${reset}"
+    if [[ -n "$latest_url" ]]; then
+        echo -e "  ${cyan}Latest:${reset}      $latest_url"
+    fi
+    if [[ -n "$recommended_url" ]]; then
+        echo -e "  ${green}Recommended:${reset} $recommended_url"
+    fi
+
     echo -e "\n${yellow}${bold}Usage:${reset}"
-    echo -e "${yellow}  $0 --artifacts latest${reset}        # Use latest version"
-    echo -e "${yellow}  $0 --artifacts $recommended${reset}        # Use specific version"
-    echo -e "${yellow}  $0 -d /home/user/FiveM --artifacts 7290${reset}  # Complete example"
+    echo -e "${yellow}  $0 --artifacts latest${reset}             # Use latest version"
+    echo -e "${yellow}  $0 --artifacts recommended${reset}        # Use recommended version"
+    echo -e "${yellow}  $0 -d /home/user/FiveM --artifacts latest${reset}  # Complete example"
+    echo
+
+    echo -e "${blue}${bold}Note:${reset} For custom versions, provide the full download URL:"
+    echo -e "${yellow}  $0 --artifacts \"https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master/XXXXX-hash/fx.tar.xz\"${reset}"
     echo
 }
 
